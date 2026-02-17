@@ -1,0 +1,786 @@
+---
+title: "InyoSAR Personnel Activity Storyboard"
+author: "Ankur Singhal"
+date: "`r Sys.Date()`"
+runtime: shiny
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  warning = FALSE, 
+  message = FALSE
+)
+# knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+```
+
+<b>Disclaimer:</b> This analysis is exploratory and intended to surface participation patterns for internal discussion, not to evaluate individual performance.   
+
+
+```{r, echo = FALSE}
+library(tidyverse)
+library(plotly)
+library(patchwork)
+```
+
+```{r, echo = FALSE}
+# root <- rprojroot::find_rstudio_root_file()
+
+personnel <- read_csv('data/personnel-clean.csv')
+oper_activity <- read_csv('data/operational-activity-clean.csv') |> 
+  mutate(Personnel = str_replace(Personnel, '\\,.+$', ''))
+
+cands <- oper_activity |> filter(Type == "Candidate")
+membs <- oper_activity |> filter(Type == 'Member') 
+
+df <- oper_activity |>
+  mutate(
+    Active_flag = Incidents > 1 & Exercises > 1 & Events > 1,
+    Activity_intensity = Duration / pmax(Total, 1),  # hours per activity, defined for Total=0
+    Incident_share = if_else(Total > 0, Incidents / Total, NA_real_),
+    Exercise_share = if_else(Total > 0, Exercises / Total, NA_real_),
+    Event_share    = if_else(Total > 0, Events / Total, NA_real_)
+  )
+
+long_time <- df |>
+  select(Personnel, Type, Incidents, Exercises, Events) |>
+  pivot_longer(c(Incidents, Exercises, Events),
+               names_to = "Activity",
+               values_to = "Count")
+```
+
+## Team as a whole
+
+Of the 104 personnel on file, 80 are active candidates or members. 2/3rd are members and 1/3rd are candidates. 
+
+```{r, echo = FALSE}
+personnel |> 
+  count(Status, Type) |> 
+  ggplot(aes(x = Status, y = n, fill = Type)) + 
+  geom_col(position = position_dodge(width = 0.9)) +
+  geom_text(
+    aes(label = n),
+    position = position_dodge(width = 0.9),
+    vjust = -0.3
+  ) +
+  labs(
+    y = 'Count', 
+    title = 'InyoSAR Personnel Status by Type', 
+    subtitle = 'Year = 2026'
+  ) +
+  theme_bw(base_size = 12)
+```
+
+
+High level breakdown of activities by personnel type, but the underlying distributions are highly asymmetric, i.e., few people spend a lot of time and a lot of people spend very little time contributing to SAR. 
+
+```{r, echo = FALSE}
+activity_totals <- long_time |> 
+  group_by(Type, Activity) |> 
+  summarize(Count = sum(Count)) 
+
+ggplot(activity_totals, aes(x = Type, y = Count, fill = Activity)) + 
+  geom_col(position = 'dodge') +
+  geom_text(
+    aes(label = Count),
+    position = position_dodge(width = 0.9),
+    vjust = -0.3
+  ) +
+  labs(
+    x = NULL, 
+    y = 'Count', 
+    title = 'Number of Activities by Personnel Type', 
+    subtitle = 'Year = 2025'
+  ) +
+  theme_bw(base_size = 12)
+```
+
+
+<!-- ```{r} -->
+<!-- pos <- position_jitter(width = 0.25, height = 0) -->
+<!-- ggplot(df, aes(x = 1, y = Total)) +  -->
+<!--   geom_boxplot(coef = Inf, alpha = 0.5, color = 'grey40') +  -->
+<!--   geom_point(position = pos, aes(color = Type), width = 0.35, size = 3, alpha = 0.5) +  -->
+<!--   # geom_text(aes(label = Personnel, color = Type), show.legend = F) + -->
+<!--   theme_bw() -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- ggplot(long_time, aes(x = 1, y = Count)) +  -->
+<!--   geom_boxplot(coef = Inf) +  -->
+<!--   geom_jitter(aes(color = Type), width = 0.35, size = 3, alpha = 0.5) +  -->
+<!--   facet_wrap(~Activity) +  -->
+<!--   theme_bw() -->
+<!-- ``` -->
+
+
+```{r, echo = FALSE}
+order_df <- long_time |>
+  group_by(Personnel) |>
+  summarise(TotalActivities = sum(Count), .groups = "drop")
+
+long_time2 <- long_time |>
+  left_join(order_df, by = "Personnel") |>
+  mutate(Personnel = reorder(Personnel, TotalActivities))
+
+```
+
+
+## By Personnel Type {.tabset}
+
+Summary statistics and analysis by personnel type below. Click on the relevant tab. 
+
+
+
+
+### Members
+
+This section explores member participation in InyoSAR activities including incidents, exercises, and events. 
+
+#### Member distribution across all activities {.tabset  .tabset-pills}
+
+The plot below is a cumulative distribution plot, which highlights different percentiles that the members fall into. For example:
+
+- Bottom 25% of the members contributed to ~10 activities in 2025. 
+- 50th percentile member contributed to just over 20 activities in 2025, which I believe is a strong number. If half the members contribute to more than 20 activities spread between exercises, events, and incidents, it indicates good engagement. 
+- Upper 25% of the members contributed to >40 activities.
+
+
+
+##### Cumulative Fraction Plot
+
+```{r, echo=FALSE}
+ecdf_plot <- ggplot(membs, aes(x = Total)) +
+  stat_ecdf() +
+  scale_x_continuous(n.breaks = 20) +
+  theme_bw() + 
+  labs(x = 'Total Number of Activities by Members (Incidents + Exercises + Events)', 
+       y = "Cumulative fraction") 
+
+ggplotly(ecdf_plot) |> 
+  style(
+    hovertemplate = paste(
+      "Total activities: %{x:.0f}",
+      "<br>Cumulative fraction: %{y:.2f}",
+      "<extra></extra>"
+    )
+  ) |> 
+  
+ layout(
+  hovermode = "closest",
+  xaxis = list(
+    showspikes = TRUE,
+    spikemode = "across",
+    spikesnap = "cursor",
+    spikecolor = "grey",
+    spikethickness = 1
+  ),
+  yaxis = list(
+    showspikes = TRUE,
+    spikemode = "across",
+    spikesnap = "cursor",
+    spikecolor = "grey",
+    spikethickness = 1
+  )
+)
+
+
+```
+
+##### Histogram
+
+```{r, echo=FALSE}
+ggplot(membs, aes(x = Total)) + 
+  geom_histogram(
+    aes(y = after_stat(density)),
+    bins = 30,
+    fill = "orange",
+    color = "grey70",
+    alpha = 0.5
+  ) +
+  geom_density(linewidth = 1) + 
+  theme_bw(base_size = 12) + 
+  labs(y = "Probability density", 
+       x = 'Total Number of Activities by Members (Incidents + Exercises + Events)')
+
+```
+
+
+#### {-}
+
+<!-- The table below shows the same information in a table format.  -->
+
+<!-- ```{r, echo=FALSE} -->
+<!-- renderDataTable({ -->
+<!--   DT::datatable( -->
+<!--     membs |> -->
+<!--       summarize( -->
+<!--         p05 = round(quantile(Total, 0.05, na.rm = TRUE)), -->
+<!--         p25 = round(quantile(Total, 0.25, na.rm = TRUE)), -->
+<!--         p50 = round(quantile(Total, 0.50, na.rm = TRUE)), -->
+<!--         p75 = round(quantile(Total, 0.75, na.rm = TRUE)), -->
+<!--         p95 = round(quantile(Total, 0.95, na.rm = TRUE)), -->
+<!--         `Total Duration (hours)` = round(sum(Duration)), -->
+<!--         # Zero_activity_pct = mean(Total == 0, na.rm = TRUE) |> scales::percent(accuracy = 0.1) -->
+<!--       ),  -->
+<!--     options = list(dom = 't') ,  -->
+<!--     colnames = c("5th %ile", "25th %ile", "50th %ile", "75th %ile", "95th %ile", "Total Duration (hours)"),  -->
+<!--     rownames = FALSE -->
+<!--   ) -->
+
+<!-- }) -->
+
+<!-- ``` -->
+
+
+#### Member splits by activity type {.tabset .tabset-pills}
+
+The plot below expands on the cumulative distribution plot (you'll notice the same shape of the curve), but it shows the activity breakdown by person. Expectantly, not everyone contributed equally to each activity (see percentage plot). Some people were more likely to respond to a mission than an exercise or an event, whereas others were more active in events. 
+
+##### Raw
+
+
+
+```{r, echo = FALSE, fig.height=10, fig.width=8}
+
+ggplot(long_time2 |> filter(Type == 'Member'), 
+       aes(x = Personnel, y = Count, fill = Activity)) +
+  geom_col() +
+  scale_y_continuous(n.breaks = 10) + 
+  coord_flip() +
+  labs(x = NULL, y = "Total number of activities", fill = "Activity") +
+  theme_bw(base_size = 12)
+```
+
+
+##### Percentage
+
+```{r, echo = FALSE, fig.height=10, fig.width=8}
+mem_plot <- long_time2 |>
+  filter(Type == "Member") |>
+  group_by(Personnel) |>
+  mutate(prop = Count / sum(Count))
+
+ggplot(mem_plot, aes(x = Personnel, y = Count, fill = Activity)) +
+  geom_col(position = 'fill') +
+  coord_flip() +
+  geom_text(
+    aes(label = ifelse(prop > 0.10, scales::percent(prop, 1), "")),
+    position = position_fill(vjust = 0.5), 
+    size = 2.8
+  ) +
+  labs(x = NULL, y = "Share of time (Incident/Exercise/Event)", fill = "Activity") +
+  theme_bw(base_size = 12)
+```
+
+#### {-}
+
+The boxplot and cumulative distribution plots below show similar information but in a slightly different manner, i.e., spread by activity type. The message is mostly the same nevertheless. 
+
+- A few members account for a disproportionate share for events and incidents, but median event participation is acceptable. 
+- Exercises have the tightest spread. Most people cluster near zero to low single digits. Sadly, 25% of the members attended 1 or no exercises. 50% of the members attended up to 5 exercises. 
+- Several individuals sit near zero across categories.
+
+
+```{r, echo = FALSE, fig.height = 8, fig.width=10}
+ordered_df <- df |> filter(Type == 'Member') |> arrange(Total)
+
+label_df <- bind_rows(
+  ordered_df |> slice((n()-4):n()), 
+  ordered_df |> slice(1:3), 
+  ordered_df |> slice(15:60) |> slice_sample(n = 4)
+  ) 
+personnel_to_label <- mem_plot |> filter(Personnel %in% label_df$Personnel)
+
+pos <- position_jitter(width = 0.25, height = 0)
+ggplot(mem_plot, aes(x = Activity, color = Activity, y = Count)) +
+  geom_boxplot(coef = Inf) + 
+  geom_point(position = pos, alpha = 0.6, size = 2) + 
+  ggrepel::geom_text_repel(
+    data = personnel_to_label, 
+    aes(label = Personnel), 
+    show.legend = FALSE, 
+    position = pos
+  ) +
+  theme_bw(base_size = 12) + 
+  labs(x = NULL, 
+       y = "Total Activities (Incidents + Exercises + Events)")
+```
+
+```{r, echo = FALSE}
+ggplot(long_time |> filter(Type == "Member"), aes(x = Count, color = Activity)) + 
+  stat_ecdf(size = 1) + 
+  scale_x_continuous(n.breaks = 10) + 
+  theme_bw() +
+  labs(x = 'Number Attended', 
+       y = 'Cumulative probability')
+```
+
+
+```{r, echo=FALSE}
+DT::renderDT({
+  DT::datatable(
+    long_time |>
+      filter(Type == "Member") |> 
+      group_by(Activity) |> 
+      summarize(
+        p05 = round(quantile(Count, 0.05, na.rm = TRUE)),
+        p25 = round(quantile(Count, 0.25, na.rm = TRUE)),
+        p50 = round(quantile(Count, 0.50, na.rm = TRUE)),
+        p75 = round(quantile(Count, 0.75, na.rm = TRUE)),
+        p95 = round(quantile(Count, 0.95, na.rm = TRUE)),
+        # `Total Duration (hours)` = round(sum(Duration)),
+        # Zero_activity_pct = mean(Total == 0, na.rm = TRUE) |> scales::percent(accuracy = 0.1)
+      ), 
+    options = list(dom = 't') , 
+    colnames = c("Activity", "5th %ile", "25th %ile", "50th %ile", "75th %ile", "95th %ile"), 
+    rownames = FALSE
+  )
+  
+})
+```
+
+
+<!-- #### Least active -->
+
+<!-- ```{r, echo = FALSE} -->
+
+<!-- renderTable({ -->
+<!--   req(n_show()>0) -->
+<!--   membs |> -->
+<!--     arrange(Total) |> -->
+<!--     slice(1:n_show()) |>  -->
+<!--     select(Personnel, Incidents:Total, Duration)  |>  -->
+<!--     mutate_at(vars(Incidents:Total), as.integer) |>  -->
+<!--     janitor::adorn_totals()   -->
+<!-- }) -->
+<!-- ``` -->
+
+<!-- #### Most active -->
+
+<!-- ```{r, echo = FALSE} -->
+<!-- renderTable({ -->
+<!--   req(n_show()>0) -->
+<!--   membs |>  -->
+<!--     arrange(desc(Total)) |>  -->
+<!--     slice(1:n_show()) |>  -->
+<!--     select(Personnel, Incidents:Total, Duration) |>  -->
+<!--     mutate_at(vars(Incidents:Total), as.integer) |>  -->
+<!--     janitor::adorn_totals()  -->
+<!-- }) -->
+
+<!-- ``` -->
+
+<!-- ### {-} -->
+
+<!-- In other words, the 85th percentile of active members contributed nearly 3,150 hours to 609 activities while the 15th percentile contributed 90 hours across 30 activities. That's <5% of the activities and <3% of total hours.  -->
+
+
+<!-- Another way to look at it: of the total of 1621 activities corresponding to 8386 hours in 2025, the top 15th percentile contributed to 37.5% of the activities and hours while the bottom 15th percentile contributed <2%. The other 70% of the active members contributed to the remaining 60%. -->
+
+<!-- The following members contributed fewer than three incidents, three events, and three exercises.  -->
+
+<!-- ```{r, echo = FALSE} -->
+<!-- membs |>  -->
+<!--   filter(Incidents <= 3, Events <= 3, Exercises <= 3) -->
+<!-- ``` -->
+
+
+The two plots tell the most interesting part of the story. At the population level, participation in incidents and exercises is strongly correlated — members attend roughly one incident for every one exercise. One could argue this is obvious and even expected: a member active in exercises is simply more likely to be active in incidents, and vice versa. On this view, the plot just confirms that some members are engaged, and when they are, they're engaged across both activity types.
+
+I disagree — or at least, I think this interpretation leaves the most important insight on the table.
+
+The comparison between the two plots is illustrative. If general member engagement explained everything, we would expect a similar correlation between incidents and events. But that's not what we see. The incidents-vs-events plot shows no stable relationship: some members with high event counts have low incident counts, and the reverse is equally common. Whatever drives participation in incidents and exercises has no functional bearing on event participation. These are not interchangeable expressions of the same underlying engagement.
+
+
+
+```{r, echo=FALSE}
+p1 <- ggplot(membs |> filter(Personnel != "Morrison"), aes(x = Events, y = Incidents)) +
+  geom_point(aes(text = paste0(
+                    Personnel,
+                    "<br>Events: ", Events,
+                    "<br>Exercises: ", Exercises,
+                    "<br>Incidents: ", Incidents
+                  )), 
+             size = 3, alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  # labs(x = 'Events', y = 'Incidents') +
+  theme_bw()
+p1_h <- plotly::ggplotly(p1, tooltip = 'text')
+
+
+# p2 <- ggplot(membs, aes(x = Events, y = Exercises))
+p3 <- ggplot(membs |> filter(Personnel != "Morrison"), aes(x = Exercises, y = Incidents))  +
+  geom_point(aes(text = paste0(
+                    Personnel,
+                    "<br>Events: ", Events,
+                    "<br>Exercises: ", Exercises,
+                    "<br>Incidents: ", Incidents
+                  )), 
+             size = 3, alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  # labs(x = 'Exercises', y = 'Incidents') +
+  theme_bw() 
+p3_h <- plotly::ggplotly(p3, tooltip = 'text', shareX=FALSE, shareY=TRUE) 
+# 
+# plotly::subplot(p1_h, p3_h, nrows = 1) |> 
+#   plotly::layout(
+#     xaxis  = list(title = "Events"),
+#     yaxis  = list(title = "Incidents"),
+#     xaxis2 = list(title = "Exercises"),
+#     yaxis2 = list(title = "Incidents")
+#   )
+# labels <- c("Morgan-McCoy, Deborah", "Stevens, Andrew", "Goorevitch, Foli", "Chavez, Dean", "Vogel, Todd",
+#             "Barbieri, Nik", "Alvarez, Kristen", "Shendar, Noam", "Otto, Elsbeth", "Smith, Amanda", "Tong, Jeff", 
+#             "Bell, Ian", "Ditto, Ben", "Demirci, Brianna", "Singhal, Ankur", "Schober, Matt", "Guenther, Amanda")
+
+# ((p1 + p3) &
+#   geom_point(aes(text = Personnel), size = 3, alpha = 0.5) &
+#   # geom_text(aes(label = Personnel)) &
+#   geom_abline(slope = 1, intercept = 0, linetype = "dashed") &
+#   # ggrepel::geom_text_repel(
+#   #   data = membs |> filter(Personnel %in% labels),
+#   #   aes(label = Personnel),
+#   #   max.overlaps = 100,
+#   #   show.legend = FALSE
+#   # ) &
+#   theme_bw())|> 
+#   plotly::ggplotly(tooltip = "text")
+# plotly::ggplotly(p4, tooltip = "text")
+```
+
+<!-- <div class="row"> -->
+<!--   <div class="col-md-3"> -->
+
+<!-- ```{r, echo = FALSE} -->
+<!-- p1_h -->
+<!-- ``` -->
+
+<!-- </div> <div class="col-md-3"> -->
+
+<!-- ```{r, echo=FALSE} -->
+<!-- p3_h -->
+<!-- ``` -->
+
+<!-- </div></div> -->
+
+```{r, echo=FALSE, results='asis'}
+p1_h <- p1_h %>% plotly::layout(height = 550)
+p3_h <- p3_h %>% plotly::layout(height = 550)
+htmltools::tagList(
+  htmltools::div(
+    style = "display:flex; gap:16px; align-items:flex-start;",
+    htmltools::div(style="flex:1; min-width:0;", p1_h),
+    htmltools::div(style="flex:1; min-width:0;", p3_h)
+  )
+)
+```
+
+
+
+So the essential question becomes: what explains the disconnect?
+
+The common assumption — one I've heard repeatedly within the team — is that raising participation requirements will drive members away. The logic seems intuitive: more burden, less engagement. But this framing misses something fundamental about who we are as members and why we showed up in the first place.
+
+InyoSAR is a voluntary organization. No one was assigned to it. Every member made a deliberate, unprompted decision to contribute their time to this organization and its mission — and then proved that commitment by completing candidacy. The burden was already there from day one, and they chose it anyway. That reframes the question. The data isn't necessarily showing us that active members happen to show up everywhere — it's showing us that members who engage with exercises carry that engagement into the field. 
+
+Exercises build competence and cohesion; they make the prospect of responding to an incident feel less daunting and more meaningful. And incidents, in turn, may sharpen the motivation to train — members return to exercises because they felt a gap in the field, because they don't want to be a liability to their team, because the mission became real to them. Participation compounds in both directions. The implication is that higher exercise standards don't threaten engagement — for members who joined for the right reasons, they may well deepen it.
+
+The data points to this conclusion, and my unofficial conversations with a few teammates support it. People seem to be more motivated to respond to incidents after attending exercises, and more motivated to train after responding to incidents. Engagement begets engagement. And critically, the inverse appears to hold as well — disengagement begets disengagement. And this is where it maybe important as a matter of policy: for members who have gone quiet, a single exercise or callout may be enough to break the inertia and restart the cycle. A structured survey of the full team would let us test this a bit more rigorously, but the practical implication is already visible in the data — the goal should be to get people to show up for exercises or incidents more than once a year.
+
+We can debate the exact thresholds — and you can explore the interactive tools below to pressure-test any cutoff. But as a starting point, I propose a minimum of three field exercises (not hut trainings) and two incidents per year to maintain active membership status. That's just over one activity per quarter. Yes, some members may fall below the threshold, but those are, by definition, the least active members in the organization. And, perhaps it's okay to lose those members if they are only there for the bare minimum especially given that the team is growing - we are about to have one of the largest candidacy groups ever sworn in. 
+
+#### By Activity type {.tabset}
+
+##### Exercises
+
+```{r, echo=FALSE, fig.height=10, fig.width=8}
+
+df <- membs |>
+  mutate(flag = Exercises <= 3) |>
+  arrange(Exercises)
+
+ggplot(df, aes(x = Exercises, y = reorder(Personnel, Exercises), shape = flag)) +
+  geom_point(size = 2, alpha = 0.8) +
+  geom_vline(xintercept = 3, linewidth = 1) +
+  # scale_shape_discrete(guide = FALSE) + 
+  theme_bw(base_size = 12) +
+  labs(
+    x = "Exercises per person",
+    y = NULL,
+    shape = paste0("Exercises attended ≤ ", 3)
+  )
+# 
+# renderTable({
+#   membs |> 
+#     filter(Exercises <= input$exercises) |> 
+#     select(-(Status:Type))
+# })
+```
+
+##### Incidents
+
+```{r, echo=FALSE, fig.height=10, fig.width=8}
+
+df <- membs |>
+  mutate(flag = Incidents <= 3) |>
+  arrange(Incidents)
+
+ggplot(df, aes(x = Incidents, y = reorder(Personnel, Incidents), shape = flag)) +
+  geom_point(size = 2, alpha = 0.8) +
+  geom_vline(xintercept = 3, linewidth = 1) +
+  # scale_shape_discrete(guide = FALSE) + 
+  theme_bw(base_size = 12) +
+  labs(
+    x = "Incidents per person",
+    y = NULL,
+    shape = paste0("Incidents attended ≤ ", 3)
+  )
+# 
+# renderTable({
+#   membs |> 
+#     filter(Exercises <= input$exercises) |> 
+#     select(-(Status:Type))
+# })
+```
+
+##### Events
+
+```{r, echo=FALSE, fig.height=10, fig.width=8}
+
+df <- membs |>
+  mutate(flag = Events <= 3) |>
+  arrange(Events)
+
+ggplot(df, aes(x = Events, y = reorder(Personnel, Events), shape = flag)) +
+  geom_point(size = 2, alpha = 0.8) +
+  geom_vline(xintercept = 3, linewidth = 1) +
+  # scale_shape_discrete(guide = FALSE) + 
+  theme_bw(base_size = 12) +
+  labs(
+    x = "Events per person",
+    y = NULL,
+    shape = paste0("Events attended ≤ ", 3)
+  )
+# 
+# renderTable({
+#   membs |> 
+#     filter(Exercises <= input$exercises) |> 
+#     select(-(Status:Type))
+# })
+```
+
+#### {-}
+<!-- ### Tables {.tabset} -->
+
+<!-- Below, you can view the members that fall into a certain percentile.  -->
+
+```{r, echo=FALSE}
+nmax <- min(max(membs$Incidents), max(membs$Events), max(membs$Exercises))
+sliderInput('activity_threshold', 
+            label = "Flag members with ≤ this many activities",
+            min = 0, 
+            max = nmax, 
+            value = 3)
+
+DT::renderDT({
+  DT::datatable(
+    long_time |> 
+      filter(Type ==  'Member', Count <= input$activity_threshold) |> 
+      group_by(Activity) |> 
+      summarize(n = n(), 
+                pct = round(n/nrow(membs)*100)),
+    options = list(dom = 't'),
+    colnames = c("Activity", "N members", "% of members"), 
+    rownames = FALSE
+  )
+})
+# 
+# n_show <- reactive({
+#   req(input$activity_threshold)
+#   n <- nrow(membs)
+#   if (is.null(n) || n == 0) return(0L)
+#   max(1L, round(n * input$percentile / 100))
+# })
+
+```
+
+
+<!-- ```{r} -->
+<!-- sliderInput("incidents", "Number of incidents:", min = 1, max = 10, value = 3) -->
+
+<!-- renderTable({ -->
+<!--   membs |>  -->
+<!--     filter(Incidents <= input$incidents) -->
+<!-- }) -->
+
+<!-- renderPlot({ -->
+<!--   req(input$incidents) -->
+
+<!--   df <- membs |> -->
+<!--     mutate(flag = Incidents <= input$incidents) |> -->
+<!--     arrange(Incidents) -->
+
+<!--   ggplot(df, aes(x = Incidents, y = reorder(Personnel, Incidents), shape = flag)) + -->
+<!--     geom_point(size = 2, alpha = 0.8) + -->
+<!--     geom_vline(xintercept = input$incidents, linewidth = 1) + -->
+<!--     theme_bw(base_size = 12) + -->
+<!--     labs( -->
+<!--       x = "Incidents per person", -->
+<!--       y = NULL, -->
+<!--       shape = paste0("≤ ", input$incidents) -->
+<!--     ) -->
+<!-- }) -->
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+<!-- library(ggtern) -->
+<!-- ggtern( -->
+<!--   data = df, -->
+<!--   aes( -->
+<!--     x = Incidents, -->
+<!--     y = Exercises, -->
+<!--     z = Events, -->
+<!--     color = Type, -->
+<!--     # size = Duration -->
+<!--     ) -->
+<!--   ) + -->
+<!--   geom_point(size = 3, alpha = 0.7) + -->
+<!--   scale_size(range = c(2, 8)) + -->
+<!--   theme_minimal() + -->
+<!--   labs(title = "Personnel activity mix") -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- selectInput( -->
+<!--   "person", -->
+<!--   "Select personnel", -->
+<!--   choices = sort(unique(membs$Personnel)) -->
+<!-- ) -->
+<!-- ``` -->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Candidates 
+
+
+#### Distributions {.tabset}
+
+##### By total activities
+
+```{r, echo = FALSE}
+ggplot(cands, aes(x = Total)) + 
+  geom_histogram(
+    aes(y = after_stat(density)),
+    bins = 30,
+    fill = "orange",
+    color = "grey80",
+    alpha = 0.5
+  ) +
+  geom_density(linewidth = 1) + 
+  theme_bw() + 
+  labs(x = 'Total Number of Activities by Candidates (Incidents + Exercises + Events)')
+```
+
+
+##### By total hours
+
+```{r, echo = FALSE}
+ggplot(cands, aes(x = Duration)) + 
+  geom_histogram(
+    aes(y = after_stat(density)),
+    # bins = 30,
+    fill = "orange",
+    color = "grey80",
+    alpha = 0.5
+  ) +
+  geom_density(linewidth = 1) +
+  theme_bw() +
+  labs(x = 'Total hours contributed by Candidates across activities (Incidents + Exercises + Events)')
+```
+
+#### Splits By activity {.tabset}
+
+
+##### Raw
+
+```{r, echo = FALSE, fig.height=6, fig.width=8}
+
+ggplot(long_time2 |> filter(Type == 'Candidate'), 
+       aes(x = Personnel, y = Count, fill = Activity)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = NULL, y = "Share of time (Incident/Exercise/Event)", fill = "Activity") +
+  theme_bw(base_size = 12)
+```
+
+##### Percentage
+
+
+```{r, echo = FALSE, fig.height=6, fig.width=8}
+cand_plot <- long_time2 |>
+  filter(Type == "Candidate") |>
+  group_by(Personnel) |>
+  mutate(prop = Count / sum(Count))
+
+ggplot(cand_plot, aes(x = Personnel, y = Count, fill = Activity)) +
+  geom_col(position = 'fill') +
+  geom_text(
+    aes(label = ifelse(prop > 0.10, scales::percent(prop, 1), "")),
+    position = position_fill(vjust = 0.5), 
+    size = 2.8
+  ) +
+  coord_flip() +
+  labs(x = NULL, y = "Share of time (Incident/Exercise/Event)", fill = "Activity") +
+  theme_bw(base_size = 12)
+```
+
+
+
+```{r, echo = FALSE, fig.height = 8, fig.width=10}
+ordered_df <- oper_activity |> filter(Type == 'Candidate') |> arrange(Total)
+
+label_df <- bind_rows(
+  ordered_df |> slice((n()-4):n()), 
+  ordered_df |> slice(1:3), 
+  ordered_df |> slice(15:60) |> slice_sample(n = 4)
+  ) 
+personnel_to_label <- cand_plot |> filter(Personnel %in% label_df$Personnel)
+
+pos <- position_jitter(width = 0.25, height = 0)
+ggplot(cand_plot, aes(x = Activity, color = Activity, y = Count)) +
+  geom_boxplot(coef = Inf) + 
+  geom_point(position = pos, alpha = 0.6, size = 2) + 
+  ggrepel::geom_text_repel(
+    data = personnel_to_label, 
+    aes(label = Personnel), 
+    show.legend = FALSE, 
+    position = pos
+  ) +
+  theme_bw(base_size = 12) + 
+  labs(x = NULL, 
+       y = "Total Activities (Incidents + Exercises + Events)")
+```
+
