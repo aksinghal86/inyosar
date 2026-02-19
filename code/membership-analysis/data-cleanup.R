@@ -20,7 +20,7 @@ activity <- openxlsx::read.xlsx('data/Annual_Report_2025.xlsx') |>
   select(-Hours, -Mins) |> 
   tibble()
 
-oper_activity <- activity |> filter(Status == 'Operational') |> 
+oper_activity <- activity |> filter(Status != 'Inactive') |> 
   filter(!is.na(Duration))
 
 write_csv(personnel, 'data/personnel-clean.csv') 
