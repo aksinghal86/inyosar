@@ -468,14 +468,16 @@ p3_h <- plotly::ggplotly(p3, tooltip = 'text', shareX=FALSE, shareY=TRUE)
 
 <!-- </div></div> -->
 
-```{r, echo=FALSE, results='asis'}
-p1_h <- p1_h %>% plotly::layout(height = 550)
-p3_h <- p3_h %>% plotly::layout(height = 550)
-htmltools::tagList(
-  htmltools::div(
-    style = "display:flex; gap:16px; align-items:flex-start;",
-    htmltools::div(style="flex:1; min-width:0;", p1_h),
-    htmltools::div(style="flex:1; min-width:0;", p3_h)
+```{r, echo=FALSE}
+p1_h <- p1_h |> plotly::config(width = NULL, autosize = TRUE, responsive = TRUE)
+p3_h <- p3_h |> plotly::config(width = NULL, autosize = TRUE, responsive = TRUE)
+htmltools::browsable(
+  htmltools::tagList(
+    htmltools::div(
+      style = "display:flex; gap:16px; align-items:flex-start;",
+      htmltools::div(style="flex:1; min-width:0;", p1_h),
+      htmltools::div(style="flex:1; min-width:0;", p3_h)
+    )
   )
 )
 ```
